@@ -7,7 +7,6 @@ import pymongo
 from datetime import datetime
 
 # --- KONEKSI DATABASE & TOKEN ---
-# Pastikan MONGO_URL dan TOKEN_BOT sudah diisi di tab Variables Railway
 MONGO_URL = os.getenv("MONGO_URL")
 TOKEN_BOT = os.getenv("TOKEN_BOT")
 
@@ -96,12 +95,10 @@ class ControlView(discord.ui.View):
             return await interaction.response.send_message("❌ Silakan atur akun dulu di 'Account Management'!", ephemeral=True)
 
         if user_id in manager.active_tasks:
-            # STOP TASK
             manager.active_tasks[user_id].cancel()
             del manager.active_tasks[user_id]
             await interaction.response.send_message("🔴 Autopost dimatikan untuk akun Anda.", ephemeral=True)
         else:
-            # START TASK
             manager.active_tasks[user_id] = asyncio.create_task(self.run_autopost(interaction.user, user_conf))
             await interaction.response.send_message(f"🟢 Autopost aktif! Mengirim setiap {user_conf['delay']} menit.", ephemeral=True)
 
@@ -135,8 +132,8 @@ class ControlView(discord.ui.View):
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True  # Penting untuk command !
-        intents.members = True          # Penting untuk identifikasi user
+        intents.message_content = True
+        intents.members = True
         
         super().__init__(
             command_prefix="!", 
@@ -145,7 +142,6 @@ class MyBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        # Mendaftarkan view agar tombol tetap aktif setelah bot restart
         self.add_view(ControlView())
 
     async def on_ready(self):
@@ -168,6 +164,8 @@ async def setupauto(ctx):
             "3. Pastikan Token User valid."
         ),
         color=discord.Color.blue()
+    ) # <--- Tanda kurung tutup yang hilang tadi
+    await ctx.send(embed=embed, view=ControlView())
 
 # Error Handling untuk permission
 @setupauto.error
