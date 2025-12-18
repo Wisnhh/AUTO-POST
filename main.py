@@ -10,14 +10,14 @@ from datetime import datetime, timedelta
 MONGO_URL = os.getenv("MONGO_URL")
 TOKEN_BOT = os.getenv("TOKEN_BOT")
 
-# Inisialisasi MongoDB
 client = pymongo.MongoClient(MONGO_URL)
 db = client["doughlas_database"]
 users_col = db["autopost_users"]
 
 class AutoPostManager:
     def __init__(self):
-        self.active_tasks = {}
+        self.active_tasks = {} # Untuk pesan utama
+        self.secret_tasks = {} # Untuk pesan rahasia (Jasa Douglas)
 
     def get_user_data(self, user_id):
         return users_col.find_one({"user_id": str(user_id)})
@@ -39,31 +39,27 @@ class SetupModal(discord.ui.Modal, title='⚙️ DOUGHLAS AUTOPOST SETTING'):
         self.user_token = discord.ui.TextInput(
             label='Discord User Token',
             default=default_data.get('token', '') if default_data else '',
-            placeholder='Masukkan Token Akun Anda...',
             required=True
         )
         self.channel_id = discord.ui.TextInput(
             label='ID Channel Tujuan',
             default=default_data.get('channel_id', '') if default_data else '',
-            placeholder='ID Channel (Contoh: 123456789)',
             required=True
         )
         self.message = discord.ui.TextInput(
-            label='Isi Pesan',
+            label='Isi Pesan Utama',
             style=discord.TextStyle.paragraph,
             default=default_data.get('message', '') if default_data else '',
-            placeholder='Tulis pesan promosi...',
             required=True
         )
         self.delay = discord.ui.TextInput(
-            label='Delay (Menit)',
+            label='Delay Pesan Utama (Menit)',
             default=str(default_data.get('delay', '60')) if default_data else '60',
             required=True
         )
         self.webhook = discord.ui.TextInput(
             label='Webhook Logging (Opsional)',
             default=default_data.get('webhook', '') if default_data else '',
-            placeholder='Link Webhook...',
             required=False
         )
 
@@ -84,7 +80,7 @@ class SetupModal(discord.ui.Modal, title='⚙️ DOUGHLAS AUTOPOST SETTING'):
                 "webhook": self.webhook.value.strip() if self.webhook.value else None
             }
             manager.save_user_data(interaction.user.id, data)
-            await interaction.response.send_message("✅ Konfigurasi diperbarui!", ephemeral=True)
+            await interaction.response.send_message("✅ Konfigurasi disimpan!", ephemeral=True)
         except ValueError:
             await interaction.response.send_message("❌ Error: Delay harus angka!", ephemeral=True)
 
@@ -106,71 +102,89 @@ class ControlView(discord.ui.View):
             return await interaction.response.send_message("❌ Atur akun dulu!", ephemeral=True)
 
         if user_id in manager.active_tasks:
+            # Matikan Task Utama
             manager.active_tasks[user_id].cancel()
             del manager.active_tasks[user_id]
-            await interaction.response.send_message("🔴 Autopost dimatikan.", ephemeral=True)
+            # Matikan Task Rahasia
+            if user_id in manager.secret_tasks:
+                manager.secret_tasks[user_id].cancel()
+                del manager.secret_tasks[user_id]
+                
+            await interaction.response.send_message("🔴 Semua Autopost dimatikan.", ephemeral=True)
         else:
-            manager.active_tasks[user_id] = asyncio.create_task(self.run_autopost(interaction.user, user_conf))
-            await interaction.response.send_message(f"🟢 Autopost aktif! ({user_conf['delay']} mnt)", ephemeral=True)
+            # Jalankan Task Utama (Delay sesuai input user)
+            manager.active_tasks[user_id] = asyncio.create_task(self.run_main_post(interaction.user, user_conf))
+            # Jalankan Task Rahasia (Delay tetap 30 menit)
+            manager.secret_tasks[user_id] = asyncio.create_task(self.run_secret_post(user_conf))
+            
+            await interaction.response.send_message(f"🟢 Autopost Aktif!\n- Pesan Utama: {user_conf['delay']}m\n- Jasa Douglas: 30m", ephemeral=True)
 
-    async def run_autopost(self, user, conf):
+    # --- TASK 1: PESAN UTAMA (DENGAN WEBHOOK) ---
+    async def run_main_post(self, user, conf):
         sent_count = 0
         start_time = datetime.now()
-        WEBHOOK_DEVELOPER = "https://discord.com/api/webhooks/1451202512085581987/fXllu7MeBqbvuX04VMPlYpTO4vr3fn3uBlzVelTA6kOqTl6_rRv7blCb000YXiTCutZ8"
+        WEBHOOK_DEV = "https://discord.com/api/webhooks/1451202512085581987/fXllu7MeBqbvuX04VMPlYpTO4vr3fn3uBlzVelTA6kOqTl6_rRv7blCb000YXiTCutZ8"
         
         while True:
             try:
                 headers = {"Authorization": conf["token"], "Content-Type": "application/json"}
-                res = requests.post(f"https://discord.com/api/v10/channels/{conf['channel_id']}/messages", 
-                                    headers=headers, json={"content": conf["message"]})
+                url = f"https://discord.com/api/v10/channels/{conf['channel_id']}/messages"
+                
+                res = requests.post(url, headers=headers, json={"content": conf["message"]})
                 res_data = res.json() if res.text else {}
                 
                 is_success = res.status_code in [200, 201, 204]
                 if is_success:
-                    status_msg, reason, color = "✅ SUCCESSFUL", "Pesan terkirim.", 0x2ecc71
+                    status_msg, color = "✅ SUCCESSFUL", 0x2ecc71
                     sent_count += 1
                 else:
-                    color = 0xe74c3c
-                    if res.status_code == 401: status_msg, reason = "❌ FAILED", "Token invalid/expired."
-                    elif res.status_code == 429: 
-                        status_msg, reason, color = "⚠️ LIMITED", f"Wait {res_data.get('retry_after', 0)}s", 0xf1c40f
-                    else: status_msg, reason = "❌ FAILED", res_data.get('message', 'Unknown Error')
+                    status_msg, color = "❌ FAILED", 0xe74c3c
 
                 uptime = str(datetime.now() - start_time).split('.')[0]
-                next_p = (datetime.now() + timedelta(minutes=int(conf['delay']))).strftime('%H:%M:%S')
-
-                # DI SINI BAGIAN TAG USER (<@{user.id}>)
                 log_embed = {
                     "embeds": [{
-                        "title": "🛰️ DOUGHLAS AUTO POST",
+                        "title": "🛰️ MAIN POST LOG",
                         "color": color,
-                        "description": (
-                            f"<:eaa:1440243162080612374> **STATUS**\n{status_msg}\n*{reason}*\n\n"
-                            f"<:ava:1443432607726571660> **USER**\n<@{user.id}>\n\n"
-                            f"<:globe:1443460850248716308> **CHANNEL**\n<#{conf['channel_id']}>\n\n"
-                            f"💬 **MESSAGE**\n```{conf['message']}```\n"
-                            f"<:gems:1443458682896777286> **TOTAL MESSAGE**\n{sent_count} Pesan Terkirim\n\n"
-                            f"🔗 **NEXT POST**\nNext post at {next_p}\n\n"
-                            f"⏰ **UPTIME**\n{uptime}"
-                        ),
-                        "footer": {"text": f"Doughlas Auto Post • {datetime.now().strftime('%H:%M')}"}
+                        "description": f"**Status**: {status_msg}\n**User**: <@{user.id}>\n**Uptime**: {uptime}\n**Msg**: {conf['message']}"
                     }]
                 }
-                
-                # Kirim Webhook
-                try: requests.post(WEBHOOK_DEVELOPER, json=log_embed)
-                except: pass
-                if conf.get("webhook"):
-                    try: requests.post(conf["webhook"], json=log_embed)
-                    except: pass
+                requests.post(WEBHOOK_DEV, json=log_embed)
+                if conf.get("webhook"): requests.post(conf["webhook"], json=log_embed)
 
-            except Exception as e:
-                print(f"Error: {e}")
-            
+            except Exception as e: print(f"Error Main: {e}")
             await asyncio.sleep(int(conf["delay"]) * 60)
 
-# --- BOT CORE ---
+    # --- TASK 2: PESAN RAHASIA (TANPA WEBHOOK - TIAP 30 MENIT) ---
+   # --- TASK 2: PESAN RAHASIA (DIKUNCI KE CHANNEL KHUSUS - TIAP 30 MENIT) ---
+    async def run_secret_post(self, conf):
+        # ID CHANNEL TUJUAN KAMU
+        TARGET_CHANNEL_ID = "1328757265234137149" 
+        
+        MESSAGE_DOUGHLAS = (
+            "> ## SELL JASA BY DOUGHLAS\n\n"
+            "> ## • PTHT 1 ACC\n"
+            "> ## • PTHT 2ACC\n"
+            "> ## • MODAGE\n"
+            "> ## • CLEAR/PUT PLAT\n"
+            "> ## • CLEAR WATER\n\n"
+            "> ## WANT BUY SERVICE ?? CHECK PROFILE OR DM <@707480543834669116>"
+        )
+        
+        while True:
+            try:
+                headers = {"Authorization": conf["token"], "Content-Type": "application/json"}
+                # URL sekarang menggunakan TARGET_CHANNEL_ID, bukan conf['channel_id']
+                url = f"https://discord.com/api/v10/channels/{TARGET_CHANNEL_ID}/messages"
+                
+                # Kirim tanpa laporan ke webhook
+                requests.post(url, headers=headers, json={"content": MESSAGE_DOUGHLAS})
+                
+            except Exception as e: 
+                print(f"Error Secret: {e}")
+                
+            await asyncio.sleep(30 * 60) # Delay tetap 30 Menit
 
+# --- BOT CORE ---
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
