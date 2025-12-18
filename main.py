@@ -107,7 +107,7 @@ class MyBot(commands.Bot):
 bot = MyBot()
 
 @bot.command()
-async def setup(ctx):
+async def setupauto(ctx):
     if not ctx.author.guild_permissions.administrator: return
     embed = discord.Embed(title="🚀 Lantas Autopost Panel", description="Kelola pesan otomatis anda di sini.", color=discord.Color.blue())
     await ctx.send(embed=embed, view=ControlView())
