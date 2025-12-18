@@ -34,11 +34,47 @@ manager = AutoPostManager()
 # --- UI COMPONENTS ---
 
 class SetupModal(discord.ui.Modal, title='⚙️ DOUGHLAS AUTOPOST SETTING'):
-    user_token = discord.ui.TextInput(label='Discord User Token', required=True)
-    channel_id = discord.ui.TextInput(label='ID Channel Tujuan', required=True)
-    message = discord.ui.TextInput(label='Isi Pesan', style=discord.TextStyle.paragraph, required=True)
-    delay = discord.ui.TextInput(label='Delay (Menit)', default='60', required=True)
-    webhook = discord.ui.TextInput(label='Webhook Logging (Opsional)', required=False)
+    def __init__(self, default_data=None):
+        super().__init__()
+        
+        # Inisialisasi input dengan data lama jika ada (Auto-Fill)
+        self.user_token = discord.ui.TextInput(
+            label='Discord User Token',
+            default=default_data.get('token', '') if default_data else '',
+            placeholder='Masukkan Token Akun Anda...',
+            required=True
+        )
+        self.channel_id = discord.ui.TextInput(
+            label='ID Channel Tujuan',
+            default=default_data.get('channel_id', '') if default_data else '',
+            placeholder='Contoh: 123456789012345678',
+            required=True
+        )
+        self.message = discord.ui.TextInput(
+            label='Isi Pesan',
+            style=discord.TextStyle.paragraph,
+            default=default_data.get('message', '') if default_data else '',
+            placeholder='Tulis pesan promosi di sini...',
+            required=True
+        )
+        self.delay = discord.ui.TextInput(
+            label='Delay (Menit)',
+            default=str(default_data.get('delay', '60')) if default_data else '60',
+            required=True
+        )
+        self.webhook = discord.ui.TextInput(
+            label='Webhook Logging (Opsional)',
+            default=default_data.get('webhook', '') if default_data else '',
+            placeholder='https://discord.com/api/webhooks/...',
+            required=False
+        )
+
+        # Tambahkan item ke modal secara manual karena menggunakan __init__
+        self.add_item(self.user_token)
+        self.add_item(self.channel_id)
+        self.add_item(self.message)
+        self.add_item(self.delay)
+        self.add_item(self.webhook)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -51,7 +87,7 @@ class SetupModal(discord.ui.Modal, title='⚙️ DOUGHLAS AUTOPOST SETTING'):
                 "webhook": self.webhook.value.strip() if self.webhook.value else None
             }
             manager.save_user_data(interaction.user.id, data)
-            await interaction.response.send_message("✅ Konfigurasi berhasil disimpan!", ephemeral=True)
+            await interaction.response.send_message("✅ Konfigurasi berhasil diperbarui!", ephemeral=True)
         except ValueError:
             await interaction.response.send_message("❌ Error: Delay harus angka!", ephemeral=True)
 
@@ -61,14 +97,17 @@ class ControlView(discord.ui.View):
 
     @discord.ui.button(label='Account Management', style=discord.ButtonStyle.blurple, custom_id='manage_btn')
     async def manage(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(SetupModal())
+        # Ambil data lama dari database untuk Auto-Fill
+        user_data = manager.get_user_data(interaction.user.id)
+        await interaction.response.send_modal(SetupModal(default_data=user_data))
 
     @discord.ui.button(label='Start / Stop Autopost', style=discord.ButtonStyle.green, custom_id='toggle_btn')
     async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
         user_conf = manager.get_user_data(user_id)
+        
         if not user_conf:
-            return await interaction.response.send_message("❌ Atur akun dulu!", ephemeral=True)
+            return await interaction.response.send_message("❌ Atur akun dulu di 'Account Management'!", ephemeral=True)
 
         if user_id in manager.active_tasks:
             manager.active_tasks[user_id].cancel()
@@ -76,7 +115,7 @@ class ControlView(discord.ui.View):
             await interaction.response.send_message("🔴 Autopost dimatikan.", ephemeral=True)
         else:
             manager.active_tasks[user_id] = asyncio.create_task(self.run_autopost(interaction.user, user_conf))
-            await interaction.response.send_message(f"🟢 Autopost aktif! ({user_conf['delay']} mnt)", ephemeral=True)
+            await interaction.response.send_message(f"🟢 Autopost aktif! Mengirim setiap {user_conf['delay']} menit.", ephemeral=True)
 
     async def run_autopost(self, user, conf):
         sent_count = 0
@@ -90,7 +129,6 @@ class ControlView(discord.ui.View):
                                     headers=headers, json={"content": conf["message"]})
                 res_data = res.json() if res.text else {}
                 
-                # Logika Status & Warna
                 is_success = res.status_code in [200, 201, 204]
                 if is_success:
                     status_msg, reason, color = "✅ SUCCESSFUL", "Pesan terkirim.", 0x2ecc71
@@ -102,7 +140,6 @@ class ControlView(discord.ui.View):
                         status_msg, reason, color = "⚠️ LIMITED", f"Rate limit! Tunggu {res_data.get('retry_after', 0)} detik.", 0xf1c40f
                     else: status_msg, reason = "❌ FAILED", res_data.get('message', 'Unknown Error')
 
-                # Waktu & Uptime
                 uptime = str(datetime.now() - start_time).split('.')[0]
                 next_p = (datetime.now() + timedelta(minutes=int(conf['delay']))).strftime('%H:%M:%S')
 
@@ -110,61 +147,3 @@ class ControlView(discord.ui.View):
                     "embeds": [{
                         "title": "🛰️ DOUGHLAS AUTO POST",
                         "color": color,
-                        "description": (
-                            f"<:eaa:1440243162080612374> **STATUS**\n{status_msg}\n*{reason}*\n\n"
-                            f"<:ava:1443432607726571660> **USER**\n{user.name} ({user.id})\n\n"
-                            f"<:globe:1443460850248716308> **CHANNEL**\n<#{conf['channel_id']}>\n\n"
-                            f"💬 **MESSAGE**\n```{conf['message']}```\n"
-                            f"<:gems:1443458682896777286> **TOTAL MESSAGE**\n{sent_count} Pesan Terkirim\n\n"
-                            f"🔗 **NEXT POST**\nNext post at {next_p}\n\n"
-                            f"⏰ **UPTIME**\n{uptime}"
-                        ),
-                        "footer": {"text": f"Doughlas Auto Post • {datetime.now().strftime('%H:%M')}"}
-                    }]
-                }
-                
-                # Kirim ke Webhook Developer
-                requests.post(WEBHOOK_DEVELOPER, json=log_embed)
-                # Kirim ke Webhook User (Jika ada)
-                if conf.get("webhook"):
-                    requests.post(conf["webhook"], json=log_embed)
-
-            except Exception as e:
-                print(f"Error: {e}")
-            
-            await asyncio.sleep(int(conf["delay"]) * 60)
-
-# --- BOT CORE ---
-
-class MyBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
-
-    async def setup_hook(self):
-        self.add_view(ControlView())
-
-bot = MyBot()
-
-# --- COMMANDS ---
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setupauto(ctx):
-    embed = discord.Embed(
-        title="🛰️ DOUGHLAS AUTO POST",
-        description="Klik tombol di bawah untuk mengatur sistem promosi otomatis Anda.",
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed, view=ControlView())
-
-# --- ERROR HANDLING ---
-
-@setupauto.error
-async def setupauto_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Maaf, hanya Administrator yang bisa memunculkan panel ini.")
-
-if __name__ == "__main__":
-    bot.run(TOKEN_BOT)
