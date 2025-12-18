@@ -13,7 +13,7 @@ TOKEN_BOT = os.getenv("TOKEN_BOT")
 
 # Inisialisasi MongoDB
 client = pymongo.MongoClient(MONGO_URL)
-db = client["lantas_database"]
+db = client["doughlas_database"]
 users_col = db["autopost_users"]
 
 class AutoPostManager:
@@ -34,7 +34,7 @@ manager = AutoPostManager()
 
 # --- UI COMPONENTS (MODAL & VIEW) ---
 
-class SetupModal(discord.ui.Modal, title='⚙️ Lantas AutoPost Config'):
+class SetupModal(discord.ui.Modal, title='⚙️ DOUGHLAS AUTOPOST SETTING'):
     user_token = discord.ui.TextInput(
         label='Discord User Token', 
         placeholder='Masukkan Token Akun Anda...', 
@@ -119,7 +119,7 @@ class ControlView(discord.ui.View):
                     color = 5763719 if res.status_code in [200, 201, 204] else 15548997
                     log_data = {
                         "embeds": [{
-                            "title": "🚀 Lantas Autopost Log",
+                            "title": "🚀 Doughlas Autopost Log",
                             "description": f"**Status:** {status}\n**Target:** <#{conf['channel_id']}>\n**Waktu:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                             "color": color
                         }]
@@ -159,7 +159,7 @@ bot = MyBot()
 @commands.has_permissions(administrator=True)
 async def setupauto(ctx):
     embed = discord.Embed(
-        title="🚀 Lantas Autopost Premium",
+        title="DOUGHLAS AUTOPOST",
         description=(
             "Gunakan panel ini untuk mengatur promosi otomatis.\n\n"
             "**Instruksi:**\n"
@@ -168,9 +168,6 @@ async def setupauto(ctx):
             "3. Pastikan Token User valid."
         ),
         color=discord.Color.blue()
-    )
-    embed.set_footer(text="Powered by Lantas Continental • Cloud 24/7")
-    await ctx.send(embed=embed, view=ControlView())
 
 # Error Handling untuk permission
 @setupauto.error
