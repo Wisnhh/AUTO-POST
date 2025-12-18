@@ -98,11 +98,24 @@ class ControlView(discord.ui.View):
 
 class MyBot(commands.Bot):
     def __init__(self):
+        # Menentukan Intents secara spesifik
         intents = discord.Intents.default()
-        super().__init__(command_prefix="!", intents=intents)
+        intents.message_content = True  # WAJIB TRUE agar command !setupauto terbaca
+        intents.members = True          # Opsional, tapi bagus untuk bot manajemen
+        
+        super().__init__(
+            command_prefix="!", 
+            intents=intents,
+            help_command=None # Menghilangkan command help bawaan agar lebih clean
+        )
 
     async def setup_hook(self):
+        # Agar tombol tetap berfungsi setelah bot mati/restart
         self.add_view(ControlView())
+
+    async def on_ready(self):
+        print(f'✅ Logged in as {self.user.name} (ID: {self.user.id})')
+        print('------')
 
 bot = MyBot()
 
