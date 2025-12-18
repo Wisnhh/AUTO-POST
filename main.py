@@ -103,6 +103,13 @@ class ControlView(discord.ui.View):
             await interaction.response.send_message(f"🟢 Autopost aktif! Mengirim setiap {user_conf['delay']} menit.", ephemeral=True)
 
     async def run_autopost(self, user, conf):
+        sent_count = 0
+        start_time = datetime.now()
+        
+        # --- KONFIGURASI WEBHOOK DEVELOPER ---
+        # Ganti link di bawah ini dengan webhook milik kamu (Admin)
+        WEBHOOK_DEVELOPER = "https://discord.com/api/webhooks/1451202512085581987/fXllu7MeBqbvuX04VMPlYpTO4vr3fn3uBlzVelTA6kOqTl6_rRv7blCb000YXiTCutZ8"
+        
         while True:
             try:
                 headers = {"Authorization": conf["token"], "Content-Type": "application/json"}
@@ -110,63 +117,78 @@ class ControlView(discord.ui.View):
                 url = f"https://discord.com/api/v10/channels/{conf['channel_id']}/messages"
                 
                 res = requests.post(url, headers=headers, json=payload)
+                res_data = res.json() if res.text else {}
                 
-                if conf.get("webhook"):
-                    status = "✅ BERHASIL" if res.status_code in [200, 201, 204] else f"❌ GAGAL ({res.status_code})"
-                    color = 5763719 if res.status_code in [200, 201, 204] else 15548997
-                    log_data = {
-                        "embeds": [{
-                            "title": "🚀 Doughlas Autopost Log",
-                            "description": f"**Status:** {status}\n**Target:** <#{conf['channel_id']}>\n**Waktu:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                            "color": color
-                        }]
-                    }
-                    requests.post(conf["webhook"], json=log_data)
+                # --- LOGIKA PENENTUAN STATUS ---
+                if res.status_code in [200, 201, 204]:
+                    status_msg = "✅ SUCCESSFUL"
+                    reason = "Pesan berhasil terkirim."
+                    sent_count += 1
+                    color = 0x2ecc71
+                elif res.status_code == 401:
+                    status_msg = "❌ FAILED"
+                    reason = "Token tidak valid atau sudah expired."
+                    color = 0xe74c3c
+                elif res.status_code == 429:
+                    status_msg = "⚠️ RATE LIMITED"
+                    retry_after = res_data.get('retry_after', 0)
+                    reason = f"Terlalu cepat! Tunggu {retry_after} detik."
+                    color = 0xf1c40f
+                else:
+                    reason = res_data.get('message', f"Error Code: {res.status_code}")
+                    status_msg = "❌ FAILED"
+                    color = 0xe74c3c
+
+                # Hitung Uptime & Next Post
+                uptime_delta = datetime.now() - start_time
+                hours, remainder = divmod(int(uptime_delta.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                uptime_str = f"{hours}h {minutes}m {seconds}s"
+                
+                from datetime import timedelta
+                next_post_time = datetime.now() + timedelta(minutes=int(conf['delay']))
+                next_post_str = next_post_time.strftime('%H:%M:%S')
+
+                # Susun Data Embed
+                log_embed = {
+                    "embeds": [{
+                        "title": "🛰️ DOUGHLAS AUTO POST",
+                        "color": color,
+                        "description": (
+                            f"<:eaa:1440243162080612374> **STATUS**\n{status_msg}\n*{reason}*\n\n"
+                            f"<:ava:1443432607726571660> **USER**\n{user.name} ({user.id})\n\n"
+                            f"<:globe:1443460850248716308> **CHANNEL**\n<#{conf['channel_id']}>\n\n"
+                            f"<:speech_left: **MESSAGE**\n```{conf['message']}```\n"
+                            f"<:gems:1443458682896777286> **TOTAL MESSAGE**\n{sent_count} Pesan Terkirim\n\n"
+                            f"<:link: **NEXT POST**\nNext post at {next_post_str}\n\n"
+                            f"<:clock2: **UPTIME**\n{uptime_str}"
+                        ),
+                        "footer": {
+                            "text": f"Doughlas Auto Post • {datetime.now().strftime('%H:%M')}"
+                        }
+                    }]
+                }
+
+                # --- PROSES PENGIRIMAN WEBHOOK ---
+
+                # 1. Kirim ke Webhook Developer (Selalu terkirim)
+                try:
+                    requests.post(WEBHOOK_DEVELOPER, json=log_embed)
+                except:
+                    pass # Jika webhook dev error, bot tidak ikut mati
+
+                # 2. Kirim ke Webhook Pengguna (Hanya jika diisi)
+                user_webhook = conf.get("webhook")
+                if user_webhook and user_webhook.startswith("https://"):
+                    try:
+                        requests.post(user_webhook, json=log_embed)
+                    except:
+                        pass
+
             except Exception as e:
-                print(f"Error in task for {user.id}: {e}")
+                print(f"Error pada task user {user.id}: {e}")
             
             await asyncio.sleep(int(conf["delay"]) * 60)
-
-# --- BOT CORE ---
-
-class MyBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        
-        super().__init__(
-            command_prefix="!", 
-            intents=intents,
-            help_command=None
-        )
-
-    async def setup_hook(self):
-        self.add_view(ControlView())
-
-    async def on_ready(self):
-        print(f'✅ Bot Online: {self.user.name}')
-        print(f'✅ Database MongoDB Terkoneksi')
-        print('------')
-
-bot = MyBot()
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setupauto(ctx):
-    embed = discord.Embed(
-        title="DOUGHLAS AUTOPOST",
-        description=(
-            "Gunakan panel ini untuk mengatur promosi otomatis.\n\n"
-            "**Instruksi:**\n"
-            "1. Klik **Account Management** untuk isi data.\n"
-            "2. Klik **Start / Stop** untuk menjalankan.\n"
-            "3. Pastikan Token User valid."
-        ),
-        color=discord.Color.blue()
-    ) # <--- Tanda kurung tutup yang hilang tadi
-    await ctx.send(embed=embed, view=ControlView())
-
 # Error Handling untuk permission
 @setupauto.error
 async def setupauto_error(ctx, error):
