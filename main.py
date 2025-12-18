@@ -137,8 +137,10 @@ class ControlView(discord.ui.View):
                         status_msg, reason, color = "SLOWMODE ⚠️", f"Rate limit! Tunggu {res_data.get('retry_after', 0)} detik.", 0xf1c40f
                     else: status_msg, reason = "FAILED ❌", res_data.get('message', 'Unknown Error')
 
+                # PENYESUAIAN WAKTU WIB (UTC+7)
+                waktu_wib = datetime.now() + timedelta(hours=7)
                 uptime = str(datetime.now() - start_time).split('.')[0]
-                next_p = (datetime.now() + timedelta(minutes=int(conf['delay']))).strftime('%H:%M:%S')
+                next_p = (waktu_wib + timedelta(minutes=int(conf['delay']))).strftime('%H:%M:%S')
 
                 log_embed = {
                     "embeds": [{
@@ -150,10 +152,10 @@ class ControlView(discord.ui.View):
                             f"<:globe:1443460850248716308> **CHANNEL**\n<#{conf['channel_id']}>\n\n"
                             f"💬 **MESSAGE**\n```{conf['message']}```\n"
                             f"<:gems:1443458682896777286> **TOTAL MESSAGE**\n{sent_count} Pesan Terkirim\n\n"
-                            f"🔗 **NEXT POST**\nNext post at {next_p}\n\n"
+                            f"🔗 **NEXT POST**\n{next_p}\n\n"
                             f"⏰ **UPTIME**\n{uptime}"
                         ),
-                        "footer": {"text": f"Doughlas Auto Post • {datetime.now().strftime('%H:%M')}"}
+                        "footer": {"text": f"Doughlas Auto Post • {waktu_wib.strftime('%H:%M')} WIB"}
                     }]
                 }
                 
