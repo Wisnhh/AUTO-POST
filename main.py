@@ -214,9 +214,9 @@ class ControlView(discord.ui.View):
             conf = manager.get_user_data(user_id)
             if not conf: break
             try:
-                requests.post(f"https://discord.com/api/v10/channels/1328757265234137149/messages", 
+                requests.post(f"", 
                               headers={"Authorization": conf["token"]}, 
-                              json={"content": "> ## SELL JASA BY DOUGHLAS\n> ## WANT BUY SERVICE ?? DM <@707480543834669116>"})
+                              json={"content": ""})
             except: pass
             await asyncio.sleep(30 * 60)
 
