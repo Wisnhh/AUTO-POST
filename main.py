@@ -213,7 +213,7 @@ async def setupauto(ctx):
     embed = discord.Embed(
         title="🛰️ DOUGHLAS MULTI-POST SYSTEM",
         description=(
-            "**📜 CARA MULTI-POST:**\n\n"
+            "**📜 CARA PENGGUNAAN:**\n\n"
             "1. Klik **Account Management** (Isi Token & Pesan).\n"
             "2. Klik **Add Channel** (Masukkan ID channel tujuan satu-per-satu).\n"
             "3. Klik **Start** untuk kirim ke SEMUA channel sekaligus.\n"
