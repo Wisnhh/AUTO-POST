@@ -34,24 +34,28 @@ manager = AutoPostManager()
 
 # --- UI COMPONENTS ---
 
-class DeleteChannelModal(discord.ui.Modal, title='🗑️ DELETE TARGET CHANNEL'):
-    channel_id = discord.ui.TextInput(label='ID Channel yang ingin dihapus', placeholder='Masukkan ID Channel...', required=True)
+class ChannelDeleteSelect(discord.ui.Select):
+    def __init__(self, channels):
+        options = [
+            discord.SelectOption(label=f"Channel: {c['id']}", description=f"Msg: {c['msg'][:50]}...", value=c['id'])
+            for c in channels
+        ]
+        super().__init__(placeholder="Pilih channel yang ingin dihapus...", options=options)
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         user_data = manager.get_user_data(user_id)
         
-        if not user_data or not user_data.get('channels'):
-            return await interaction.response.send_message("❌ Daftar channel kosong!", ephemeral=True)
-        
         channels = user_data.get('channels', [])
-        new_channels = [c for c in channels if c['id'] != self.channel_id.value.strip()]
+        new_channels = [c for c in channels if c['id'] != self.values[0]]
         
-        if len(channels) == len(new_channels):
-            return await interaction.response.send_message("⚠️ ID Channel tidak ditemukan dalam daftar.", ephemeral=True)
-
         manager.save_user_data(user_id, {"channels": new_channels})
-        await interaction.response.send_message(f"✅ Channel `{self.channel_id.value}` telah dihapus.", ephemeral=True)
+        await interaction.response.edit_message(content=f"✅ Channel `{self.values[0]}` berhasil dihapus!", view=None)
+
+class DeleteChannelView(discord.ui.View):
+    def __init__(self, channels):
+        super().__init__()
+        self.add_item(ChannelDeleteSelect(channels))
 
 class AddChannelModal(discord.ui.Modal, title='➕ ADD TARGET & MESSAGE'):
     channel_id = discord.ui.TextInput(label='ID Channel Tujuan', placeholder='Masukkan ID Channel...', required=True)
@@ -103,7 +107,15 @@ class ControlView(discord.ui.View):
 
     @discord.ui.button(label='Delete Channel', style=discord.ButtonStyle.red, custom_id='del_chan_btn')
     async def delete_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(DeleteChannelModal())
+        user_id = str(interaction.user.id)
+        user_data = manager.get_user_data(user_id)
+        
+        if not user_data or not user_data.get('channels'):
+            return await interaction.response.send_message("❌ Tidak ada channel untuk dihapus.", ephemeral=True)
+        
+        await interaction.response.send_message("Pilih channel yang ingin Anda hapus dari daftar di bawah:", 
+                                                view=DeleteChannelView(user_data['channels']), 
+                                                ephemeral=True)
 
     @discord.ui.button(label='Stats', style=discord.ButtonStyle.gray, custom_id='stats_btn')
     async def stats(self, interaction: discord.Interaction, button: discord.ui.Button):
