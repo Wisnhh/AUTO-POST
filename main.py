@@ -36,18 +36,37 @@ manager = AutoPostManager()
 
 class ChannelDeleteSelect(discord.ui.Select):
     def __init__(self, channels):
-        options = [
-            discord.SelectOption(label=f"Channel: {c['id']}", description=f"Msg: {c['msg'][:50]}...", value=c['id'])
-            for c in channels
-        ]
+        options = []
+        for c in channels:
+            # Validasi data: Pastikan c adalah dictionary, bukan string
+            if isinstance(c, dict) and 'id' in c:
+                label_name = f"ID: {c['id']}"
+                desc = f"Msg: {c.get('msg', '')[:50]}..."
+                val = c['id']
+                options.append(discord.SelectOption(label=label_name, description=desc, value=val))
+            elif isinstance(c, str):
+                # Jika data lama (hanya string ID), tetap tampilkan agar bisa dihapus
+                options.append(discord.SelectOption(label=f"Old ID: {c}", value=c))
+
+        if not options:
+            options.append(discord.SelectOption(label="No Channels Found", value="none"))
+
         super().__init__(placeholder="Pilih channel yang ingin dihapus...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            return await interaction.response.send_message("❌ Tidak ada channel valid.", ephemeral=True)
+            
         user_id = str(interaction.user.id)
         user_data = manager.get_user_data(user_id)
         
         channels = user_data.get('channels', [])
-        new_channels = [c for c in channels if c['id'] != self.values[0]]
+        # Filter hapus: mendukung format dict maupun string lama
+        new_channels = []
+        for c in channels:
+            current_id = c['id'] if isinstance(c, dict) else c
+            if current_id != self.values[0]:
+                new_channels.append(c)
         
         manager.save_user_data(user_id, {"channels": new_channels})
         await interaction.response.edit_message(content=f"✅ Channel `{self.values[0]}` berhasil dihapus!", view=None)
@@ -65,9 +84,14 @@ class AddChannelModal(discord.ui.Modal, title='➕ ADD TARGET & MESSAGE'):
         user_id = str(interaction.user.id)
         user_data = manager.get_user_data(user_id) or {}
         
-        channels = user_data.get('channels', [])
+        raw_channels = user_data.get('channels', [])
+        # Bersihkan data string lama agar menjadi format dict semua
+        channels = []
+        for c in raw_channels:
+            if isinstance(c, dict): channels.append(c)
+            else: channels.append({"id": str(c), "msg": "No message set"})
+
         new_channel = {"id": self.channel_id.value.strip(), "msg": self.message.value}
-        
         channels = [c for c in channels if c['id'] != new_channel['id']]
         channels.append(new_channel)
         
@@ -113,7 +137,7 @@ class ControlView(discord.ui.View):
         if not user_data or not user_data.get('channels'):
             return await interaction.response.send_message("❌ Tidak ada channel untuk dihapus.", ephemeral=True)
         
-        await interaction.response.send_message("Pilih channel yang ingin Anda hapus dari daftar di bawah:", 
+        await interaction.response.send_message("Pilih channel yang ingin Anda hapus:", 
                                                 view=DeleteChannelView(user_data['channels']), 
                                                 ephemeral=True)
 
@@ -170,6 +194,7 @@ class ControlView(discord.ui.View):
             headers = {"Authorization": conf["token"], "Content-Type": "application/json"}
             
             for ch in channels:
+                if not isinstance(ch, dict): continue # Lewati data lama yang rusak
                 try:
                     res = requests.post(f"https://discord.com/api/v10/channels/{ch['id']}/messages", headers=headers, json={"content": ch['msg']})
                     waktu_wib = datetime.now() + timedelta(hours=7)
